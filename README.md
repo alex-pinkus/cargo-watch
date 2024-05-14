@@ -32,7 +32,7 @@ $ cargo binstall cargo-watch
 From source:
 
 ```console
-$ cargo install cargo-watch
+$ cargo install cargo-watch --locked
 ```
 
 Or clone and build with `$ cargo build` then place in your $PATH.
