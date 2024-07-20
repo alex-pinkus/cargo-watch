@@ -8,6 +8,7 @@ use watchexec::{error::Result, run::watch};
 mod args;
 mod options;
 mod root;
+mod rustc;
 mod watch;
 
 fn main() -> Result<()> {

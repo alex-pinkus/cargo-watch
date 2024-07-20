@@ -14,7 +14,11 @@ use watchexec::{
     Shell,
 };
 
-pub fn set_commands(builder: &mut ConfigBuilder, matches: &ArgMatches) {
+/// Sets all the requested commands on the passed-in `builder`.
+///
+/// If no commands are provided, this defaults to `cargo check`, and returns `true` to indicate
+/// that it used the default.
+pub fn set_commands(builder: &mut ConfigBuilder, matches: &ArgMatches) -> bool {
     let mut commands: Vec<String> = Vec::new();
 
     // --features are injected just after applicable cargo subcommands
@@ -114,17 +118,23 @@ pub fn set_commands(builder: &mut ConfigBuilder, matches: &ArgMatches) {
     }
 
     // Default to `cargo check`
-    if commands.is_empty() {
+    let default_command = if commands.is_empty() {
         let mut cmd: String = "cargo check".into();
         if let Some(features) = features.as_ref() {
             cmd.push_str(" --features ");
             cmd.push_str(features);
         }
         commands.push(cmd);
-    }
+
+        true
+    } else {
+        false
+    };
 
     debug!("Commands: {:?}", commands);
     builder.cmd(commands);
+
+    default_command
 }
 
 pub fn set_ignores(builder: &mut ConfigBuilder, matches: &ArgMatches) {
@@ -192,8 +202,13 @@ pub fn set_debounce(builder: &mut ConfigBuilder, matches: &ArgMatches) {
     }
 }
 
-fn find_local_deps() -> Result<Vec<PathBuf>, String> {
+fn find_local_deps(filter_platform: Option<String>) -> Result<Vec<PathBuf>, String> {
+    let options: Vec<String> = filter_platform
+        .map(|platform| format!("--filter-platform={}", platform))
+        .into_iter()
+        .collect();
     let metadata = MetadataCommand::new()
+        .other_options(options)
         .exec()
         .map_err(|e| format!("Failed to execute `cargo metadata`: {}", e))?;
 
@@ -250,7 +265,7 @@ fn find_local_deps() -> Result<Vec<PathBuf>, String> {
     Ok(local_deps.into_iter().collect::<Vec<PathBuf>>())
 }
 
-pub fn set_watches(builder: &mut ConfigBuilder, matches: &ArgMatches) {
+pub fn set_watches(builder: &mut ConfigBuilder, matches: &ArgMatches, only_default_command: bool) {
     let mut watches = Vec::new();
     if matches.is_present("watch") {
         for watch in values_t!(matches, "watch", String).unwrap_or_else(|e| e.exit()) {
@@ -260,7 +275,12 @@ pub fn set_watches(builder: &mut ConfigBuilder, matches: &ArgMatches) {
 
     if watches.is_empty() {
         if !matches.is_present("skip-local-deps") {
-            match find_local_deps() {
+            let filter_platform = if only_default_command {
+                Some(crate::rustc::host_triple())
+            } else {
+                None
+            };
+            match find_local_deps(filter_platform) {
                 Ok(dirs) => {
                     if dirs.is_empty() {
                         debug!("Found no local deps");
@@ -322,8 +342,8 @@ pub fn get_options(matches: &ArgMatches) -> Config {
 
     set_ignores(&mut builder, matches);
     set_debounce(&mut builder, matches);
-    set_watches(&mut builder, matches);
-    set_commands(&mut builder, matches);
+    let only_default_command = set_commands(&mut builder, matches);
+    set_watches(&mut builder, matches, only_default_command);
 
     let mut args = builder.build().unwrap();
     args.once = matches.is_present("once");
